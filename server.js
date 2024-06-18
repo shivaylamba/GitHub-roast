@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
@@ -6,6 +7,11 @@ const GitHubStrategy = require('passport-github').Strategy;
 const session = require('express-session');
 const path = require('path');
 const OpenAI = require('openai');
+
+const Pieces = require('@pieces.app/pieces-os-client');
+const os = require('os');
+// import * as Pieces from '@pieces.app/pieces-os-client';
+// import os from 'os';
 
 const app = express();
 app.use(express.json());
@@ -16,13 +22,22 @@ app.use(session({
     saveUninitialized: true,
 }));
 
+// Pieces OS Setup
+const platform = os.platform();
+const port = platform === 'linux' ? 5323 : 1000;
+
+const configuration = new Pieces.Configuration({
+  basePath: `http://localhost:${port}`
+});
+const apiInstance = new Pieces.QGPTApi(configuration);
+
 // Passport setup
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((obj, done) => done(null, obj));
 
 passport.use(new GitHubStrategy({
-    clientID: process.env.GITHUB_CLIENT_ID,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    clientID: process.env.clientID,
+    clientSecret: process.env.clientSecret,
     callbackURL: "https://github-roast.up.railway.app/auth/github/callback"
 }, (accessToken, refreshToken, profile, done) => done(null, profile)));
 
@@ -55,9 +70,9 @@ app.get('/home', (req, res) => {
     }
 });
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY_NEW3,
-});
+// const openai = new OpenAI({
+//     apiKey: process.env.OPENAI_API_KEY_NEW3,
+// });
 
 // Endpoint to generate a roast
 app.get('/roast/:username', async (req, res) => {
@@ -68,22 +83,23 @@ app.get('/roast/:username', async (req, res) => {
 
         if (!profileData) return res.status(404).json({ error: "GitHub user not found" });
 
-        const messages = [
-            { role: "system", content: "You are a witty assistant asked to create a light-hearted roast." },
-            { role: "user", content: `Tell me a roast about a GitHub user named ${profileData.name || username} who has ${profileData.public_repos} repositories and ${profileData.followers} followers.` },
-        ];
+        const query = "You are a witty assistant asked to create a light-hearted roast." + `Tell me a roast about a GitHub user named ${profileData.name || username} who has ${profileData.public_repos} repositories and ${profileData.followers} followers.`;
 
-        const completion = await openai.chat.completions.create({
-            messages: messages,
-            model: "gpt-3.5-turbo",
-        });
 
-        if (completion.choices && completion.choices.length > 0) {
-            const roast = completion.choices[0].message.content;
-            res.json({ roast });
-        } else {
-            res.status(500).json({ error: "Failed to generate a roast from AI" });
-        }
+        const params = {
+            query,
+            relevant: {
+              iterable: []
+            },
+          };
+
+        const result = await apiInstance.question({ qGPTQuestionInput: params });
+
+     
+        const roast = result.answers.iterable[0].text;
+        
+        res.json({ roast });
+       
     } catch (error) {
         console.error('Error:', error);
         res.status(500).json({ error: 'Failed to fetch data or generate roast' });
